@@ -231,15 +231,22 @@ public class BrokerController {
         return queryThreadPoolQueue;
     }
 
+    /**
+     * 初始化方法
+     */
     public boolean initialize() throws CloneNotSupportedException {
+        // 加载主题
         boolean result = this.topicConfigManager.load();
-
+        // 加载消费进度
         result = result && this.consumerOffsetManager.load();
+        // 加载订阅信息
         result = result && this.subscriptionGroupManager.load();
+        // 加载消费者过滤的信息
         result = result && this.consumerFilterManager.load();
 
         if (result) {
             try {
+                // 创建消息存储管理组件
                 this.messageStore =
                     new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener,
                         this.brokerConfig);
@@ -247,6 +254,7 @@ public class BrokerController {
                     DLedgerRoleChangeHandler roleChangeHandler = new DLedgerRoleChangeHandler(this, (DefaultMessageStore) messageStore);
                     ((DLedgerCommitLog)((DefaultMessageStore) messageStore).getCommitLog()).getdLedgerServer().getdLedgerLeaderElector().addRoleChangeHandler(roleChangeHandler);
                 }
+                // broker的统计组件
                 this.brokerStats = new BrokerStats((DefaultMessageStore) this.messageStore);
                 //load plugin
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
@@ -261,6 +269,7 @@ public class BrokerController {
         result = result && this.messageStore.load();
 
         if (result) {
+            // 构建netty服务端
             this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.clientHousekeepingService);
             NettyServerConfig fastConfig = (NettyServerConfig) this.nettyServerConfig.clone();
             fastConfig.setListenPort(nettyServerConfig.getListenPort() - 2);
@@ -272,7 +281,7 @@ public class BrokerController {
                 TimeUnit.MILLISECONDS,
                 this.sendThreadPoolQueue,
                 new ThreadFactoryImpl("SendMessageThread_"));
-
+            // 创建pull消息线程池
             this.pullMessageExecutor = new BrokerFixedThreadPoolExecutor(
                 this.brokerConfig.getPullMessageThreadPoolNums(),
                 this.brokerConfig.getPullMessageThreadPoolNums(),
@@ -300,7 +309,7 @@ public class BrokerController {
             this.adminBrokerExecutor =
                 Executors.newFixedThreadPool(this.brokerConfig.getAdminBrokerThreadPoolNums(), new ThreadFactoryImpl(
                     "AdminBrokerThread_"));
-
+            // 处理心跳线程池
             this.clientManageExecutor = new ThreadPoolExecutor(
                 this.brokerConfig.getClientManageThreadPoolNums(),
                 this.brokerConfig.getClientManageThreadPoolNums(),
@@ -330,7 +339,7 @@ public class BrokerController {
                     "ConsumerManageThread_"));
 
             this.registerProcessor();
-
+            // 各种后台定时任务--持久化配置文件
             final long initialDelay = UtilAll.computeNextMorningTimeMillis() - System.currentTimeMillis();
             final long period = 1000 * 60 * 60 * 24;
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -849,10 +858,11 @@ public class BrokerController {
     }
 
     public void start() throws Exception {
+        // 启动消息存储组件
         if (this.messageStore != null) {
             this.messageStore.start();
         }
-
+        // 启动netty服务
         if (this.remotingServer != null) {
             this.remotingServer.start();
         }
@@ -864,7 +874,7 @@ public class BrokerController {
         if (this.fileWatchService != null) {
             this.fileWatchService.start();
         }
-
+        // 对外通信组件，例如给namesever发心跳
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
@@ -880,18 +890,21 @@ public class BrokerController {
         if (this.filterServerManager != null) {
             this.filterServerManager.start();
         }
-
+        // 开启DLedger 多副本主从切换
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
+            // 开启事务状态回查处理器
             startProcessorByHa(messageStoreConfig.getBrokerRole());
+            // 处理从节点的元数据同步
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
             this.registerBrokerAll(true, false, true);
         }
-
+        // broker 每隔30秒向nameserver发送心跳包
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
             public void run() {
                 try {
+                    // 向nameserver发送心跳包
                     BrokerController.this.registerBrokerAll(true, false, brokerConfig.isForceRegister());
                 } catch (Throwable e) {
                     log.error("registerBrokerAll Exception", e);
