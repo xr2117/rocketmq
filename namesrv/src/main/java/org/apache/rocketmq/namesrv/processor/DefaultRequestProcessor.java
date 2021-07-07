@@ -301,6 +301,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             topicConfigWrapper.getDataVersion().setTimestamp(0);
         }
         // 注册 broker 信息核心方法， 调用 registerBroker() 方法，使用了读写锁
+        // 这里使用读写锁 因为 broker主机可能是集群，并发的情况下，生产者进查询也要保证路由的信息
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
